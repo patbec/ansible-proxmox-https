@@ -1,0 +1,108 @@
+- name: Proxmox
+  hosts: proxmox
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Ensure certificate is present
+      block:
+        - name: Get stats from pveproxy-ssl.pem
+          ansible.builtin.stat:
+            path: /etc/pve/local/pveproxy-ssl.pem
+          register: cert_pem
+
+        - name: Get stats from pveproxy-ssl.key
+          ansible.builtin.stat:
+            path: /etc/pve/local/pveproxy-ssl.key
+          register: cert_key
+
+        - name: Ensure that ACME has been set up
+          ansible.builtin.assert:
+            that:
+              - cert_pem.stat.exists == true
+              - cert_key.stat.exists == true
+            fail_msg: "Certificate was not found, make sure ACME has been set up."
+
+    # - name: Configure repositories
+    #   block:
+    #     - name: Remove Proxmox enterprise repository
+    #       ansible.builtin.apt_repository:
+    #         repo: deb https://enterprise.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-enterprise
+    #         filename: pve-enterprise
+    #         state: absent
+    #         update_cache: true
+
+    #     - name: Add Proxmox no-subscription repository
+    #       ansible.builtin.apt_repository:
+    #         repo: deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription
+    #         filename: pve-no-subscription
+    #         state: present
+    #         update_cache: true
+
+    - name: Install nginx
+      ansible.builtin.apt:
+        name:
+          - nginx-light
+        policy_rc_d: 101  # Prevent autostart
+
+    - name: Configure nginx application
+      notify:
+        - Stop nginx
+      block:
+        - name: Template nginx configuration
+          ansible.builtin.template:
+            src: etc/nginx/nginx.conf.j2
+            dest: /etc/nginx/nginx.conf
+            owner: root
+            group: root
+            mode: "0644"
+            validate: nginx -t -c "%s"
+
+        - name: Template proxmox site
+          ansible.builtin.template:
+            src: etc/nginx/sites-available/proxmox.conf.j2
+            dest: /etc/nginx/sites-available/proxmox.conf
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Enable proxmox site
+          ansible.builtin.file:
+            src: /etc/nginx/sites-available/proxmox.conf
+            dest: /etc/nginx/sites-enabled/proxmox.conf
+            owner: root
+            group: root
+            state: link
+
+    - name: Configure nginx service
+      notify:
+        - Stop nginx
+      block:
+        - name: Ensure nginx override folder exists
+          ansible.builtin.file:
+            path: /etc/systemd/system/nginx.service.d
+            state: directory
+            mode: "0755"
+
+        - name: Template nginx override configuration
+          ansible.builtin.template:
+            src: etc/systemd/system/nginx.service.d/override.conf.j2
+            dest: /etc/systemd/system/nginx.service.d/override.conf
+            owner: root
+            group: root
+            mode: "0644"
+
+    - name: Stop nginx if configuration has changed
+      ansible.builtin.meta: flush_handlers
+
+    - name: Ensure nginx is started
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Stop nginx
+      ansible.builtin.service:
+        name: nginx
+        state: stopped
+        daemon_reload: true

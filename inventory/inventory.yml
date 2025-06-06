@@ -1,0 +1,6 @@
+all:
+  hosts:
+    proxmox:
+      ansible_user: root
+      ansible_host: proxmox.company.intra
+      ansible_python_interpreter: /usr/bin/python3
