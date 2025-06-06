@@ -46,4 +46,4 @@ The following versions were tested:
 
 ✅ Proxmox VE 7.4-xx
 
-> This project is intended for my home proxmox server and should not be used on production servers.
+> This project should not be used on production servers without testing.
